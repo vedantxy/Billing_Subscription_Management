@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Cadence {
+  monthly
+  yearly
+  once
+}
+
+enum SubscriptionStatus {
+  active
+  paused
+  cancelled
+  past_due
+}
+
+enum InvoiceStage {
+  draft
+  issued
+}
+
+enum PaymentStatus {
+  successful
+  pending
+  failed
+}
+
+enum PaymentMethod {
+  upi
+  bank_transfer
+  card
+  cash
+  other
+}
+
+model Customer {
+  id            String         @id
+  name          String
+  email         String         @unique
+  phone         String
+  address       String
+  archived      Boolean        @default(false)
+  createdOn     DateTime       @db.Date
+  subscriptions Subscription[]
+  invoices      Invoice[]
+}
+
+model Product {
+  id          String  @id
+  name        String
+  description String
+  enabled     Boolean @default(true)
+  plans       Plan[]
+}
+
+model Plan {
+  id            String         @id
+  productId     String
+  name          String
+  cadence       Cadence
+  price         Int
+  enabled       Boolean        @default(true)
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  subscriptions Subscription[]
+  lines         InvoiceLine[]
+
+  @@index([productId])
+}
+
+model Subscription {
+  id         String              @id
+  customerId String
+  planId     String
+  planLabel  String
+  price      Int
+  cadence    Cadence
+  status     SubscriptionStatus
+  startDate  DateTime            @db.Date
+  nextDate   DateTime            @db.Date
+  anchorDay  Int
+  customer   Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  plan       Plan                @relation(fields: [planId], references: [id], onDelete: Restrict)
+  events     SubscriptionEvent[]
+  invoices   Invoice[]
+
+  @@index([customerId])
+  @@index([status, nextDate])
+}
+
+model SubscriptionEvent {
+  id             String       @id
+  subscriptionId String
+  at             DateTime
+  message        String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, at])
+}
+
+model Invoice {
+  id             String        @id
+  sequence       Int           @unique
+  customerId     String
+  subscriptionId String?
+  billTo         String
+  billEmail      String
+  billAddress    String
+  stage          InvoiceStage
+  issuedOn       DateTime      @db.Date
+  dueOn          DateTime      @db.Date
+  discountBps    Int
+  taxBps         Int
+  notes          String
+  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  lines          InvoiceLine[]
+  payments       Payment[]
+
+  @@index([customerId, issuedOn])
+  @@index([stage, dueOn])
+}
+
+model InvoiceLine {
+  id          String  @id
+  invoiceId   String
+  planId      String?
+  position    Int
+  description String
+  quantity    Int
+  unitPrice   Int
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  plan        Plan?   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, position])
+}
+
+model Payment {
+  id        String        @id
+  invoiceId String
+  amount    Int
+  paidOn    DateTime      @db.Date
+  method    PaymentMethod
+  status    PaymentStatus
+  invoice   Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([status, paidOn])
+}
+
+model Mutation {
+  key       String   @id
+  signature String
+  result    Json
+  createdAt DateTime @default(now())
+}
